@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>ADVITOS Kiosk</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #e8eefc;
+      --font-nav:   clamp(13px, 1.5vw, 18px);
+      --nav-border: rgba(2, 30, 65, 0.1);
+      --pad:        20px;
+      --radius:     30px;
+    }
+
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: var(--bg);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    }
+    body { display: flex; flex-direction: column; }
+
+    /* ─────────────── NAVIGATION ─────────────── */
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: var(--pad);
+      padding: var(--pad);
+      flex-shrink: 0;
+    }
+
+    .nav-btn {
+      flex-shrink: 0;
+      width: 42px; height: 42px;
+      border: 1px solid var(--nav-border);
+      border-radius: 20px;
+      background: none;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+    .nav-btn:hover  { background: rgba(2, 30, 65, .06); }
+    .nav-btn:active { background: rgba(2, 30, 65, .12); }
+    .nav-btn.prev svg { transform: rotate(180deg); }
+
+    .nav-items {
+      flex: 1 1 0; min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      align-content: center;
+      gap: 10px 28px;
+      list-style: none;
+    }
+
+    .nav-item {
+      font-size: var(--font-nav);
+      font-weight: 400;
+      color: rgba(0, 0, 0, .5);
+      cursor: pointer;
+      white-space: nowrap;
+      line-height: 1.5;
+      padding: 2px 0;
+      transition: color .15s;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nav-item:hover  { color: rgba(0, 0, 0, .7); }
+    .nav-item.active { color: #000; font-weight: 600; }
+
+    /* ─────────────── CONTENT AREA ─────────────── */
+
+    .content-area {
+      flex: 1 1 0; min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 var(--pad) var(--pad);
+    }
+
+    .content-frame {
+      position: relative;
+      /* width + height are set precisely via JS ResizeObserver */
+      flex-shrink: 0;
+      border-radius: var(--radius);
+      box-shadow: 0 4px 66px rgba(0, 0, 0, .25);
+      overflow: hidden;
+      background: #d6e0f5;
+      cursor: default;
+    }
+
+    .content-frame video,
+    .content-frame img {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      display: none;
+      object-fit: cover;
+    }
+
+    /* Placeholder shown when no config is loaded */
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: rgba(2, 30, 65, .4);
+      font-size: 1rem;
+    }
+    .placeholder code {
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: .9em;
+      background: rgba(2, 30, 65, .08);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* ─────────────── FULLSCREEN BUTTON ─────────────── */
+
+    .btn-fs {
+      position: absolute;
+      top: 10px; right: 10px;
+      width: 50px; height: 50px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255, 255, 255, .9);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      transition: transform .15s, background .15s;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+    .btn-fs:hover  { background: #fff; transform: scale(1.06); }
+    .btn-fs:active { transform: scale(.95); }
+
+    /* ─────────────── PLAYBACK INDICATORS ─────────────── */
+
+    /* Scrub overlays – visible while holding */
+    .ind-scrub {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 50%;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.12s;
+      z-index: 5;
+    }
+    .ind-scrub.visible { opacity: 1; }
+
+    .ind-forward {
+      right: 0;
+      background: linear-gradient(to left, rgba(2,30,65,0.20) 0%, rgba(2,30,65,0) 100%);
+      border-radius: 0 var(--radius) var(--radius) 0;
+    }
+
+    .ind-rewind {
+      left: 0;
+      background: linear-gradient(to right, rgba(2,30,65,0.20) 0%, rgba(2,30,65,0) 100%);
+      border-radius: var(--radius) 0 0 var(--radius);
+    }
+
+    /* Play / Pause flash icons – centered */
+    .ind-icon {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(96px, 9%);
+      aspect-ratio: 1 / 1;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 6;
+    }
+
+    @keyframes ind-flash {
+      0%   { opacity: 0;    transform: translate(-50%, -50%) scale(0.8); }
+      12%  { opacity: 0.65; transform: translate(-50%, -50%) scale(1.0); }
+      60%  { opacity: 0.65; transform: translate(-50%, -50%) scale(1.0); }
+      100% { opacity: 0;    transform: translate(-50%, -50%) scale(0.95); }
+    }
+
+    .ind-icon.flash { animation: ind-flash 0.7s ease forwards; }
+
+    /* ─────────────── FAKE FULLSCREEN (iOS / fallback) ─────────────── */
+
+    .content-frame.fakeFS {
+      position: fixed !important;
+      inset: 0 !important;
+      width:  100vw !important;
+      height: 100vh !important;
+      max-height: none !important;
+      aspect-ratio: unset !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ─── Navigation ──────────────────────────────────────── -->
+<nav class="nav">
+  <button class="nav-btn prev" id="prev" title="Zurück">
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" fill="#1F1F1F"/>
+    </svg>
+  </button>
+
+  <ul class="nav-items" id="navItems" role="tablist" aria-label="Inhaltsnavigation"></ul>
+
+  <button class="nav-btn next" id="next" title="Weiter">
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" fill="#1F1F1F"/>
+    </svg>
+  </button>
+</nav>
+
+<!-- ─── Content ──────────────────────────────────────────── -->
+<main class="content-area">
+  <div class="content-frame" id="frame">
+    <video id="vid" autoplay loop muted playsinline></video>
+    <img   id="img" alt="">
+
+    <div class="placeholder" id="ph">
+      <svg width="52" height="52" viewBox="0 0 24 24" aria-hidden="true" fill="rgba(2,30,65,.25)">
+        <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+      </svg>
+      <span>Inhalte in <code>config.js</code> konfigurieren</span>
+    </div>
+
+    <!-- Scrub indicators -->
+    <div id="ind-forward" class="ind-scrub ind-forward" aria-hidden="true"></div>
+    <div id="ind-rewind"  class="ind-scrub ind-rewind"  aria-hidden="true"></div>
+
+    <!-- Play / Pause flash -->
+    <div id="ind-play" class="ind-icon" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140" width="100%" height="100%">
+        <circle cx="70" cy="70" r="58" fill="rgba(255,255,255,0.82)"/>
+        <circle cx="70" cy="70" r="56" fill="none" stroke="#021e41" stroke-width="2.5"/>
+        <path d="M60 47 L60 93 L100 70 Z" fill="#021e41"/>
+      </svg>
+    </div>
+    <div id="ind-pause" class="ind-icon" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140" width="100%" height="100%">
+        <circle cx="70" cy="70" r="58" fill="rgba(255,255,255,0.82)"/>
+        <circle cx="70" cy="70" r="56" fill="none" stroke="#021e41" stroke-width="2.5"/>
+        <rect x="50" y="46" width="13" height="48" rx="2.5" fill="#021e41"/>
+        <rect x="77" y="46" width="13" height="48" rx="2.5" fill="#021e41"/>
+      </svg>
+    </div>
+
+    <button class="btn-fs" id="btnFS" title="Vollbild">
+      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
+        <path id="fsPath" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" fill="#1F1F1F"/>
+      </svg>
+    </button>
+  </div>
+</main>
+
+<!-- Config must be loaded before app logic -->
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  /* ── SVG icon paths ───────────────────────────────────────────── */
+  var PATH_FS_ENTER = 'M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z';
+  var PATH_FS_EXIT  = 'M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z';
+
+  /* ── Read config ──────────────────────────────────────────────── */
+  var items = (typeof CONFIG !== 'undefined' && Array.isArray(CONFIG.items))
+    ? CONFIG.items : [];
+
+  /* ── State ────────────────────────────────────────────────────── */
+  var idx    = 0;
+  var fakeFS = false;
+
+  /* ── DOM refs ─────────────────────────────────────────────────── */
+  var frame      = document.getElementById('frame');
+  var vid        = document.getElementById('vid');
+  var img        = document.getElementById('img');
+  var ph         = document.getElementById('ph');
+  var navEl      = document.getElementById('navItems');
+  var btnPrev    = document.getElementById('prev');
+  var btnNext    = document.getElementById('next');
+  var btnFS      = document.getElementById('btnFS');
+  var fsPath     = document.getElementById('fsPath');
+  var indForward = document.getElementById('ind-forward');
+  var indRewind  = document.getElementById('ind-rewind');
+  var indPlay    = document.getElementById('ind-play');
+  var indPause   = document.getElementById('ind-pause');
+
+  /* ── Build nav items ──────────────────────────────────────────── */
+  function buildNav() {
+    navEl.innerHTML = '';
+    items.forEach(function (item, i) {
+      var li = document.createElement('li');
+      li.className = 'nav-item' + (i === 0 ? ' active' : '');
+      li.setAttribute('role', 'tab');
+      li.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+      li.textContent = item.title;
+      li.addEventListener('click', function () { goTo(i); });
+      navEl.appendChild(li);
+    });
+  }
+
+  /* ── Navigate to index ────────────────────────────────────────── */
+  function goTo(n) {
+    if (!items.length) return;
+    idx = ((n % items.length) + items.length) % items.length;
+
+    /* Update nav highlight */
+    navEl.querySelectorAll('.nav-item').forEach(function (el, i) {
+      var active = (i === idx);
+      el.classList.toggle('active', active);
+      el.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+
+    /* Show content */
+    var item = items[idx];
+    ph.style.display = 'none';
+
+    if (item.type === 'video') {
+      img.style.display = 'none';
+      img.src = '';
+      vid.style.display = 'block';
+      /* Only reload if src actually changed */
+      if (vid.getAttribute('src') !== item.src) {
+        vid.src = item.src;
+        vid.load();
+      }
+      vid.play().catch(function () { /* autoplay blocked – fine, user can tap */ });
+
+    } else {
+      vid.style.display = 'none';
+      vid.pause();
+      vid.removeAttribute('src');
+      img.style.display = 'block';
+      img.src = item.src;
+      img.alt = item.title || '';
+    }
+  }
+
+  /* ── Fullscreen helpers ───────────────────────────────────────── */
+  function isNativeFS() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+
+  function setFSIcon(isFullscreen) {
+    fsPath.setAttribute('d', isFullscreen ? PATH_FS_EXIT : PATH_FS_ENTER);
+    btnFS.title = isFullscreen ? 'Vollbild beenden' : 'Vollbild';
+  }
+
+  function enterFS() {
+    if (frame.requestFullscreen) {
+      frame.requestFullscreen().catch(enterFakeFS);
+    } else if (frame.webkitRequestFullscreen) {
+      frame.webkitRequestFullscreen();
+    } else {
+      enterFakeFS();
+    }
+  }
+
+  function exitFS() {
+    if (isNativeFS()) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    }
+    if (fakeFS) exitFakeFS();
+  }
+
+  function enterFakeFS() {
+    fakeFS = true;
+    frame.classList.add('fakeFS');
+    setFSIcon(true);
+  }
+
+  function exitFakeFS() {
+    fakeFS = false;
+    frame.classList.remove('fakeFS');
+    setFSIcon(false);
+  }
+
+  /* Fullscreen button */
+  btnFS.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (isNativeFS() || fakeFS) exitFS(); else enterFS();
+  });
+
+  /* Sync icon when native fullscreen changes */
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (evt) {
+    document.addEventListener(evt, function () { setFSIcon(isNativeFS()); });
+  });
+
+  /* ── Keyboard navigation ──────────────────────────────────────── */
+  document.addEventListener('keydown', function (e) {
+    switch (e.key) {
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        e.preventDefault();
+        goTo(idx - 1);
+        break;
+      case 'ArrowRight':
+      case 'ArrowDown':
+        e.preventDefault();
+        goTo(idx + 1);
+        break;
+      case 'f':
+      case 'F':
+        if (!e.ctrlKey && !e.metaKey) enterFS();
+        break;
+    }
+  });
+
+  /* ── Frame interaction: tap = play/pause, hold = speed ──────── */
+  var HOLD_MS   = 300;  /* ms before hold mode activates  */
+  var SPEED     = 5;    /* playback / reverse multiplier  */
+
+  var _ptX = 0, _ptY = 0;
+  var _holdTimer  = null;
+  var _revActive  = false;
+  var _revCleanup = null;
+  var _isHeld = false, _wasPlaying = false, _holdZone = '';
+
+  function _isVideo() { return items.length > 0 && items[idx].type === 'video'; }
+
+  function _half(clientX) {
+    return (clientX - frame.getBoundingClientRect().left) < frame.offsetWidth / 2 ? 'L' : 'R';
+  }
+
+  function _stopReverse() {
+    _revActive = false;
+    if (_revCleanup) { _revCleanup(); _revCleanup = null; }
+  }
+
+  function _stopAll() {
+    clearTimeout(_holdTimer); _holdTimer = null;
+    _stopReverse();
+  }
+
+  function _showFlash(el) {
+    el.classList.remove('flash');
+    void el.offsetWidth; /* restart animation */
+    el.classList.add('flash');
+  }
+
+  function _hideScrubIndicators() {
+    indForward.classList.remove('visible');
+    indRewind.classList.remove('visible');
+  }
+
+  function _restoreAfterHold() {
+    _stopReverse();
+    vid.playbackRate = 1;
+    _hideScrubIndicators();
+    _wasPlaying ? vid.play().catch(function () {}) : vid.pause();
+  }
+
+  function _startReverse() {
+    vid.pause();
+    _revActive = true;
+    var step = SPEED / 12; /* seek step: 5x at ~12 visible frames/sec */
+
+    function doSeek() {
+      if (!_revActive) return;
+      var next = vid.currentTime - step;
+      if (next <= 0) { vid.currentTime = 0; _stopReverse(); return; }
+      vid.currentTime = next;
+    }
+
+    function onSeeked() { if (_revActive) doSeek(); }
+
+    vid.addEventListener('seeked', onSeeked);
+    _revCleanup = function () { vid.removeEventListener('seeked', onSeeked); };
+    doSeek(); /* kick off first seek */
+  }
+
+  frame.addEventListener('pointerdown', function (e) {
+    if (btnFS.contains(e.target)) return;
+    _ptX = e.clientX;
+    _ptY = e.clientY;
+    _isHeld = false;
+
+    if (_isVideo()) {
+      _holdZone   = _half(e.clientX);
+      _wasPlaying = !vid.paused;
+
+      _holdTimer = setTimeout(function () {
+        _isHeld = true;
+        if (_holdZone === 'R') {
+          vid.play().catch(function () {});
+          vid.playbackRate = SPEED;
+          indForward.classList.add('visible');
+        } else {
+          _startReverse();
+          indRewind.classList.add('visible');
+        }
+      }, HOLD_MS);
+    }
+  });
+
+  frame.addEventListener('pointerup', function (e) {
+    if (btnFS.contains(e.target)) return;
+    _stopAll();
+
+    var dx      = e.clientX - _ptX;
+    var dy      = e.clientY - _ptY;
+    var isTap = Math.abs(dx) < 10 && Math.abs(dy) < 10;
+
+    if (!_isVideo()) return;
+
+    if (_isHeld) {
+      /* End of hold → restore previous state */
+      _restoreAfterHold();
+    } else if (isTap) {
+      /* Short tap → toggle play / pause */
+      if (vid.paused) {
+        vid.play().catch(function () {});
+        _showFlash(indPlay);
+      } else {
+        vid.pause();
+        _showFlash(indPause);
+      }
+    }
+    _isHeld = false;
+  });
+
+  /* Safety: restore if pointer cancelled (e.g. incoming call on iPad) */
+  frame.addEventListener('pointercancel', function () {
+    _stopAll();
+    _hideScrubIndicators();
+    if (_isHeld) { _restoreAfterHold(); _isHeld = false; }
+  });
+
+  /* ── Arrow buttons ────────────────────────────────────────────── */
+  btnPrev.addEventListener('click', function () { goTo(idx - 1); });
+  btnNext.addEventListener('click', function () { goTo(idx + 1); });
+
+  /* ── 16:9 sizing via ResizeObserver ──────────────────────────── */
+  var contentArea = frame.parentElement;
+
+  function resizeFrame() {
+    var style  = getComputedStyle(contentArea);
+    var areaW  = contentArea.clientWidth
+                  - parseFloat(style.paddingLeft)
+                  - parseFloat(style.paddingRight);
+    var areaH  = contentArea.clientHeight
+                  - parseFloat(style.paddingTop)
+                  - parseFloat(style.paddingBottom);
+    var w = (areaW / areaH > 16/9) ? areaH * (16/9) : areaW;
+    var h = w * (9/16);
+    frame.style.width  = Math.round(w) + 'px';
+    frame.style.height = Math.round(h) + 'px';
+  }
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(resizeFrame).observe(contentArea);
+  } else {
+    window.addEventListener('resize', resizeFrame);
+  }
+  resizeFrame();
+
+  /* ── Init ─────────────────────────────────────────────────────── */
+  buildNav();
+  if (items.length > 0) {
+    goTo(0);
+  } else {
+    ph.style.display = 'flex';
+  }
+
+}());
+</script>
+</body>
+</html>

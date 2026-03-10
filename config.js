@@ -32,7 +32,7 @@ const CONFIG = {
     {
       title: "Albumin Circuit",
       type:  "video",
-      src:   "assets/media/albumin-circuit.mp4"
+      src:   "assets/media/albumin-circuit2.mp4"
     },
     {
       title: "Albumin Regeneration",

@@ -45,7 +45,7 @@ const CONFIG = {
       src:   "assets/media/acidosis.mp4"
     },
     {
-      title: "CO2",
+      title: "CO2 Extra",
       type:  "video",
       src:   "assets/media/co.mp4"
     }
